@@ -8,17 +8,19 @@ class Medico extends Model
 {
     protected $table = 'medico';
     protected $primaryKey = 'id';
-    public $timestamps = false;
+    public $timestamps = true;
+    const CREATED_AT = 'data_criacao';
+    const UPDATED_AT = 'data_alteracao';
 
     protected $fillable = [
-        'id_pessoa',
-        'especialidade',
-        'sub_especialidade',
-        'crm',
-        'uf_crm',
-        'tipo',
-        'status',
+        'id_pessoa', 'especialidade', 'sub_especialidade',
+        'crm', 'uf_crm', 'tipo', 'status',
     ];
+
+    public function scopeAtivos($query)
+    {
+        return $query->where('status', 'A');
+    }
 
     public function pessoa()
     {

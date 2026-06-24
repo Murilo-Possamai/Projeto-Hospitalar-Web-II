@@ -8,15 +8,12 @@ class Pessoa extends Model
 {
     protected $table = 'pessoa';
     protected $primaryKey = 'id';
-    public $timestamps = false;
+    public $timestamps = true;
+    const CREATED_AT = 'data_criacao';
+    const UPDATED_AT = 'data_alteracao';
 
     protected $fillable = [
-        'nome',
-        'cpf',
-        'data_nascimento',
-        'email',
-        'telefone',
-        'id_endereco',
+        'nome', 'cpf', 'data_nascimento', 'email', 'telefone', 'id_endereco',
     ];
 
     public function endereco()

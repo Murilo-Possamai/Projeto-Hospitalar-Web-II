@@ -8,18 +8,20 @@ class Consulta extends Model
 {
     protected $table = 'consulta';
     protected $primaryKey = 'id';
-    public $timestamps = false;
+    public $timestamps = true;
+    const CREATED_AT = 'data_criacao';
+    const UPDATED_AT = 'data_alteracao';
 
     protected $fillable = [
-        'id_paciente',
-        'id_medico',
-        'id_tipo_consulta',
-        'data',
-        'hora_inicio',
-        'hora_fim',
-        'status',
-        'descricao',
+        'id_paciente', 'id_medico', 'id_tipo_consulta',
+        'data', 'hora_inicio', 'hora_fim',
+        'status', 'descricao', 'data_check_in',
     ];
+
+    const STATUS_AGENDADA  = 'agendada';
+    const STATUS_SALA      = 'sala_espera';
+    const STATUS_CANCELADA = 'cancelada';
+    const STATUS_CONCLUIDA = 'concluida';
 
     public function paciente()
     {
