@@ -3,113 +3,99 @@
 namespace App\Http\Controllers\Recepcao;
 
 use App\Http\Controllers\Controller;
-use App\Models\Agenda;
 use App\Models\Consulta;
-use App\Models\Medico;
 use App\Models\TipoConsulta;
+use App\Models\Agenda;
 use App\Models\Usuario;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
 
 class AgendamentoController extends Controller
 {
-    /**
-     * @OA\Get(
-     *   path="/recepcao/agendamento",
-     *   tags={"Agendamento"},
-     *   summary="Lista consultas do mês atual e tipos de consulta",
-     *   security={{"sanctum":{}}},
-     *   @OA\Response(
-     *     response=200,
-     *     description="Dados de agendamento do mês atual",
-     *     @OA\JsonContent(
-     *       @OA\Property(property="consultas", type="array",
-     *         @OA\Items(
-     *           @OA\Property(property="id", type="integer"),
-     *           @OA\Property(property="data", type="string", format="date"),
-     *           @OA\Property(property="hora_inicio", type="string", example="08:00"),
-     *           @OA\Property(property="hora_fim", type="string", example="08:30"),
-     *           @OA\Property(property="status", type="string", example="agendado"),
-     *           @OA\Property(property="descricao", type="string")
-     *         )
-     *       ),
-     *       @OA\Property(property="tiposConsulta", type="array",
-     *         @OA\Items(
-     *           @OA\Property(property="id", type="integer"),
-     *           @OA\Property(property="nome", type="string")
-     *         )
-     *       )
-     *     )
-     *   )
-     * )
-     */
+    private function apiUrl(): string
+    {
+        return env('HOSPITAL_API_URL', 'https://projeto-hospitalar-web-ii-production.up.railway.app/api');
+    }
+
+    private function getMedicos(): array
+    {
+        $response = Http::withToken(session('jwt_token'))
+            ->get($this->apiUrl() . '/medicos', ['status' => 'A']);
+
+        return $response->successful()
+            ? collect($response->json())->map(fn($m) => [
+                'id'           => $m['id'],
+                'nome'         => $m['nome'],
+                'especialidade' => $m['especialidade'] ?? '',
+              ])->values()->toArray()
+            : [];
+    }
+
+    private function getPacientes(): array
+    {
+        return Usuario::with('pessoa')
+            ->where('funcao', 'paciente')
+            ->get()
+            ->map(fn($u) => [
+                'id'   => $u->id,
+                'nome' => $u->pessoa?->nome ?? $u->usuario,
+                'cpf'  => $u->pessoa?->cpf ?? '—',
+            ])->values()->toArray();
+    }
+
     public function index()
     {
         $consultas = Consulta::with(['paciente.pessoa', 'medico.pessoa', 'tipoConsulta'])
             ->whereYear('data', now()->year)
             ->whereMonth('data', now()->month)
-            ->get();
+            ->get()
+            ->map(fn($c) => [
+                'id'            => $c->id,
+                'data'          => $c->data,
+                'hora_inicio'   => strlen($c->hora_inicio) > 8
+                    ? substr($c->hora_inicio, 11, 5)
+                    : substr($c->hora_inicio, 0, 5),
+                'hora_fim'      => strlen($c->hora_fim ?? '') > 8
+                    ? substr($c->hora_fim, 11, 5)
+                    : substr($c->hora_fim ?? '', 0, 5),
+                'status'        => $c->status,
+                'descricao'     => $c->descricao,
+                'data_check_in' => $c->data_check_in,
+                'paciente'      => ['pessoa' => ['nome' => $c->paciente?->pessoa?->nome ?? $c->paciente?->usuario]],
+                'medico'        => ['pessoa' => ['nome' => $c->medico?->pessoa?->nome]],
+                'tipo_consulta' => ['descricao' => $c->tipoConsulta?->descricao],
+            ]);
 
-        $tiposConsulta = TipoConsulta::all();
+        $tiposConsulta = TipoConsulta::select('id', 'descricao', 'valor')->get();
 
         return Inertia::render('Recepcao/Agendamento', [
-            'consultas' => $consultas,
+            'consultas'     => $consultas,
             'tiposConsulta' => $tiposConsulta,
+            'medicos'       => $this->getMedicos(),
+            'pacientes'     => $this->getPacientes(),
         ]);
     }
 
-    /**
-     * @OA\Get(
-     *   path="/recepcao/medicos",
-     *   tags={"Agendamento"},
-     *   summary="Lista médicos ativos",
-     *   security={{"sanctum":{}}},
-     *   @OA\Response(
-     *     response=200,
-     *     description="Lista de médicos",
-     *     @OA\JsonContent(type="array",
-     *       @OA\Items(
-     *         @OA\Property(property="id", type="integer"),
-     *         @OA\Property(property="nome", type="string"),
-     *         @OA\Property(property="especialidade", type="string")
-     *       )
-     *     )
-     *   )
-     * )
-     */
+    // Integração Entrada: lista de médicos vem da API equipe-1
     public function medicos()
     {
-        $medicos = Medico::with('pessoa')
-            ->where('status', 'ativo')
-            ->get()
-            ->map(fn($m) => [
-                'id'           => $m->id,
-                'nome'         => $m->pessoa->nome,
-                'especialidade' => $m->especialidade,
-            ]);
+        $response = Http::withToken(session('jwt_token'))
+            ->get($this->apiUrl() . '/medicos', ['status' => 'A']);
+
+        if (!$response->successful()) {
+            return response()->json([]);
+        }
+
+        $medicos = collect($response->json())->map(fn($m) => [
+            'id'           => $m['id'],
+            'nome'         => $m['nome'],
+            'especialidade' => $m['especialidade'] ?? '',
+        ]);
 
         return response()->json($medicos);
     }
 
-    /**
-     * @OA\Get(
-     *   path="/recepcao/pacientes",
-     *   tags={"Agendamento"},
-     *   summary="Lista pacientes",
-     *   security={{"sanctum":{}}},
-     *   @OA\Response(
-     *     response=200,
-     *     description="Lista de pacientes",
-     *     @OA\JsonContent(type="array",
-     *       @OA\Items(
-     *         @OA\Property(property="id", type="integer"),
-     *         @OA\Property(property="nome", type="string"),
-     *         @OA\Property(property="cpf", type="string")
-     *       )
-     *     )
-     *   )
-     * )
-     */
     public function pacientes()
     {
         $pacientes = Usuario::with('pessoa')
@@ -117,46 +103,13 @@ class AgendamentoController extends Controller
             ->get()
             ->map(fn($u) => [
                 'id'   => $u->id,
-                'nome' => $u->pessoa->nome,
-                'cpf'  => $u->pessoa->cpf,
+                'nome' => $u->pessoa?->nome ?? $u->usuario,
+                'cpf'  => $u->pessoa?->cpf ?? '—',
             ]);
 
         return response()->json($pacientes);
     }
 
-    /**
-     * @OA\Get(
-     *   path="/recepcao/disponibilidade",
-     *   tags={"Agendamento"},
-     *   summary="Retorna slots de horário disponíveis para um médico em uma data",
-     *   security={{"sanctum":{}}},
-     *   @OA\Parameter(
-     *     name="medico_id",
-     *     in="query",
-     *     required=true,
-     *     description="ID do médico",
-     *     @OA\Schema(type="integer", example=1)
-     *   ),
-     *   @OA\Parameter(
-     *     name="data",
-     *     in="query",
-     *     required=true,
-     *     description="Data no formato YYYY-MM-DD",
-     *     @OA\Schema(type="string", format="date", example="2026-05-20")
-     *   ),
-     *   @OA\Response(
-     *     response=200,
-     *     description="Lista de slots de horário",
-     *     @OA\JsonContent(type="array",
-     *       @OA\Items(
-     *         @OA\Property(property="hora", type="string", example="08:00"),
-     *         @OA\Property(property="disponivel", type="boolean", example=true)
-     *       )
-     *     )
-     *   ),
-     *   @OA\Response(response=422, description="Parâmetros inválidos")
-     * )
-     */
     public function disponibilidade(Request $request)
     {
         $request->validate([
@@ -168,21 +121,22 @@ class AgendamentoController extends Controller
             ->where('data_disponibilidade', $request->data)
             ->get();
 
+        // hora_inicio em consulta é DATETIME — extrair apenas HH:MM
         $ocupados = Consulta::where('id_medico', $request->medico_id)
             ->where('data', $request->data)
-            ->where('status', '!=', 'cancelado')
+            ->whereNotIn('status', [Consulta::STATUS_CANCELADA])
+            ->get()
             ->pluck('hora_inicio')
-            ->map(fn($h) => substr($h, 0, 5))
+            ->map(fn($h) => strlen($h) > 8 ? substr($h, 11, 5) : substr($h, 0, 5))
             ->toArray();
 
         $slots = [];
-
         foreach ($agendas as $agenda) {
             $current = strtotime($agenda->hora_inicio);
             $fim     = strtotime($agenda->hora_fim);
 
             while ($current < $fim) {
-                $hora = date('H:i', $current);
+                $hora    = date('H:i', $current);
                 $slots[] = [
                     'hora'      => $hora,
                     'disponivel' => !in_array($hora, $ocupados),
@@ -194,28 +148,6 @@ class AgendamentoController extends Controller
         return response()->json($slots);
     }
 
-    /**
-     * @OA\Post(
-     *   path="/recepcao/agendamento",
-     *   tags={"Agendamento"},
-     *   summary="Cria novo agendamento",
-     *   security={{"sanctum":{}}},
-     *   @OA\RequestBody(
-     *     required=true,
-     *     @OA\JsonContent(
-     *       required={"id_paciente","id_medico","id_tipo_consulta","data","hora_inicio"},
-     *       @OA\Property(property="id_paciente", type="integer", example=1),
-     *       @OA\Property(property="id_medico", type="integer", example=2),
-     *       @OA\Property(property="id_tipo_consulta", type="integer", example=1),
-     *       @OA\Property(property="data", type="string", format="date", example="2026-05-20"),
-     *       @OA\Property(property="hora_inicio", type="string", example="09:00"),
-     *       @OA\Property(property="descricao", type="string", nullable=true, example="Consulta de rotina")
-     *     )
-     *   ),
-     *   @OA\Response(response=302, description="Redirecionamento após criação bem-sucedida"),
-     *   @OA\Response(response=422, description="Dados inválidos ou horário já ocupado")
-     * )
-     */
     public function store(Request $request)
     {
         $request->validate([
@@ -227,26 +159,30 @@ class AgendamentoController extends Controller
             'descricao'        => 'nullable|string',
         ]);
 
+        $hora = strlen($request->hora_inicio) === 5
+            ? $request->hora_inicio
+            : substr($request->hora_inicio, 0, 5);
+
         $conflito = Consulta::where('id_medico', $request->id_medico)
             ->where('data', $request->data)
-            ->where('hora_inicio', $request->hora_inicio)
-            ->where('status', '!=', 'cancelado')
+            ->whereRaw("TIME(hora_inicio) = ?", [$hora . ':00'])
+            ->whereNotIn('status', [Consulta::STATUS_CANCELADA])
             ->exists();
 
         if ($conflito) {
             return back()->withErrors(['hora_inicio' => 'Horário já ocupado.']);
         }
 
-        $horaFim = date('H:i', strtotime($request->hora_inicio) + 30 * 60);
+        $horaFim = date('H:i', strtotime($hora) + 30 * 60);
 
         Consulta::create([
             'id_paciente'      => $request->id_paciente,
             'id_medico'        => $request->id_medico,
             'id_tipo_consulta' => $request->id_tipo_consulta,
             'data'             => $request->data,
-            'hora_inicio'      => $request->hora_inicio,
-            'hora_fim'         => $horaFim,
-            'status'           => 'agendado',
+            'hora_inicio'      => $request->data . ' ' . $hora . ':00',
+            'hora_fim'         => $request->data . ' ' . $horaFim . ':00',
+            'status'           => Consulta::STATUS_AGENDADA,
             'descricao'        => $request->descricao,
         ]);
 
@@ -255,43 +191,24 @@ class AgendamentoController extends Controller
 
     public function edit($id)
     {
-        $consulta = Consulta::with(['paciente.pessoa', 'medico.pessoa', 'tipoConsulta'])
-            ->findOrFail($id);
+        $c = Consulta::with(['paciente.pessoa', 'medico.pessoa', 'tipoConsulta'])->findOrFail($id);
 
-        return response()->json($consulta);
+        $horaInicio = strlen($c->hora_inicio) > 8
+            ? substr($c->hora_inicio, 11, 5)
+            : substr($c->hora_inicio, 0, 5);
+
+        return response()->json([
+            'id'               => $c->id,
+            'data'             => $c->data,
+            'hora_inicio'      => $horaInicio,
+            'id_paciente'      => $c->id_paciente,
+            'id_medico'        => $c->id_medico,
+            'id_tipo_consulta' => $c->id_tipo_consulta,
+            'status'           => $c->status,
+            'descricao'        => $c->descricao,
+        ]);
     }
 
-    /**
-     * @OA\Put(
-     *   path="/recepcao/agendamento/{id}",
-     *   tags={"Agendamento"},
-     *   summary="Atualiza uma consulta existente",
-     *   security={{"sanctum":{}}},
-     *   @OA\Parameter(
-     *     name="id",
-     *     in="path",
-     *     required=true,
-     *     description="ID da consulta",
-     *     @OA\Schema(type="integer", example=1)
-     *   ),
-     *   @OA\RequestBody(
-     *     required=true,
-     *     @OA\JsonContent(
-     *       required={"id_paciente","id_medico","id_tipo_consulta","data","hora_inicio"},
-     *       @OA\Property(property="id_paciente", type="integer", example=1),
-     *       @OA\Property(property="id_medico", type="integer", example=2),
-     *       @OA\Property(property="id_tipo_consulta", type="integer", example=1),
-     *       @OA\Property(property="data", type="string", format="date", example="2026-05-20"),
-     *       @OA\Property(property="hora_inicio", type="string", example="09:00"),
-     *       @OA\Property(property="descricao", type="string", nullable=true, example="Consulta de rotina"),
-     *       @OA\Property(property="status", type="string", nullable=true, enum={"agendado","cancelado","realizado"}, example="agendado")
-     *     )
-     *   ),
-     *   @OA\Response(response=302, description="Redirecionamento após atualização bem-sucedida"),
-     *   @OA\Response(response=404, description="Consulta não encontrada"),
-     *   @OA\Response(response=422, description="Dados inválidos ou horário já ocupado")
-     * )
-     */
     public function update(Request $request, $id)
     {
         $request->validate([
@@ -301,13 +218,17 @@ class AgendamentoController extends Controller
             'data'             => 'required|date',
             'hora_inicio'      => 'required',
             'descricao'        => 'nullable|string',
-            'status'           => 'nullable|string|in:agendado,cancelado,realizado',
+            'status'           => 'nullable|string|in:agendada,cancelada,sala_espera,concluida',
         ]);
+
+        $hora = strlen($request->hora_inicio) === 5
+            ? $request->hora_inicio
+            : substr($request->hora_inicio, 0, 5);
 
         $conflito = Consulta::where('id_medico', $request->id_medico)
             ->where('data', $request->data)
-            ->where('hora_inicio', $request->hora_inicio)
-            ->where('status', '!=', 'cancelado')
+            ->whereRaw("TIME(hora_inicio) = ?", [$hora . ':00'])
+            ->whereNotIn('status', [Consulta::STATUS_CANCELADA])
             ->where('id', '!=', $id)
             ->exists();
 
@@ -316,16 +237,15 @@ class AgendamentoController extends Controller
         }
 
         $consulta = Consulta::findOrFail($id);
-
-        $horaFim = date('H:i', strtotime($request->hora_inicio) + 30 * 60);
+        $horaFim  = date('H:i', strtotime($hora) + 30 * 60);
 
         $consulta->update([
             'id_paciente'      => $request->id_paciente,
             'id_medico'        => $request->id_medico,
             'id_tipo_consulta' => $request->id_tipo_consulta,
             'data'             => $request->data,
-            'hora_inicio'      => $request->hora_inicio,
-            'hora_fim'         => $horaFim,
+            'hora_inicio'      => $request->data . ' ' . $hora . ':00',
+            'hora_fim'         => $request->data . ' ' . $horaFim . ':00',
             'descricao'        => $request->descricao,
             'status'           => $request->status ?? $consulta->status,
         ]);
@@ -333,28 +253,10 @@ class AgendamentoController extends Controller
         return redirect()->route('recepcao.agendamento');
     }
 
-    /**
-     * @OA\Delete(
-     *   path="/recepcao/agendamento/{id}",
-     *   tags={"Agendamento"},
-     *   summary="Cancela uma consulta (soft delete via status)",
-     *   security={{"sanctum":{}}},
-     *   @OA\Parameter(
-     *     name="id",
-     *     in="path",
-     *     required=true,
-     *     description="ID da consulta a cancelar",
-     *     @OA\Schema(type="integer", example=1)
-     *   ),
-     *   @OA\Response(response=302, description="Redirecionamento após cancelamento"),
-     *   @OA\Response(response=404, description="Consulta não encontrada")
-     * )
-     */
     public function destroy($id)
     {
         $consulta = Consulta::findOrFail($id);
-        $consulta->status = 'cancelado';
-        $consulta->save();
+        $consulta->update(['status' => Consulta::STATUS_CANCELADA]);
 
         return redirect()->route('recepcao.agendamento');
     }

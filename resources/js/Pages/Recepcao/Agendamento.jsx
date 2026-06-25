@@ -6,14 +6,12 @@ import SlotHorario from '@/Components/Recepcao/SlotHorario';
 import ModalConfirmacao from '@/Components/Recepcao/ModalConfirmacao';
 import ModalEdicao from '@/Components/Recepcao/ModalEdicao';
 
-export default function Agendamento({ consultas = [], tiposConsulta = [] }) {
+export default function Agendamento({ consultas = [], tiposConsulta = [], medicos = [], pacientes = [] }) {
     const hoje = new Date();
     const [ano, setAno] = useState(hoje.getFullYear());
     const [mes, setMes] = useState(hoje.getMonth());
     const [diaSelecionado, setDiaSelecionado] = useState(null);
 
-    const [medicos, setMedicos] = useState([]);
-    const [pacientes, setPacientes] = useState([]);
     const [slots, setSlots] = useState([]);
 
     const [medicoId, setMedicoId] = useState('');
@@ -29,28 +27,22 @@ export default function Agendamento({ consultas = [], tiposConsulta = [] }) {
     const [consultaEmEdicao, setConsultaEmEdicao] = useState(null);
 
     useEffect(() => {
-        fetch(route('recepcao.medicos'))
-            .then((r) => r.json())
-            .then(setMedicos);
-
-        fetch(route('recepcao.pacientes'))
-            .then((r) => r.json())
-            .then(setPacientes);
-    }, []);
-
-    useEffect(() => {
         if (!medicoId || !diaSelecionado) {
             setSlots([]);
             setHoraSelecionada('');
             return;
         }
 
-        fetch(route('recepcao.disponibilidade') + `?medico_id=${medicoId}&data=${diaSelecionado}`)
+        const token = localStorage.getItem('token');
+        fetch(route('recepcao.disponibilidade') + `?medico_id=${medicoId}&data=${diaSelecionado}`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
             .then((r) => r.json())
             .then((data) => {
                 setSlots(data);
                 setHoraSelecionada('');
-            });
+            })
+            .catch(() => setSlots([]));
     }, [medicoId, diaSelecionado]);
 
     useEffect(() => {
