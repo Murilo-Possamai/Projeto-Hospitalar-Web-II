@@ -11,7 +11,9 @@ class ConsultasDoDiaController extends Controller
     /**
      * GET /api/consultas-do-dia
      * Integração Saída: consultas do dia para equipe-3.
-     * Aceita ?data=YYYY-MM-DD (padrão: hoje).
+     * ?data=YYYY-MM-DD  (padrão: hoje)
+     * ?status=sala_espera  (fila de check-in para o médico)
+     * ?id_medico=X
      */
     public function index(Request $request)
     {
@@ -19,6 +21,8 @@ class ConsultasDoDiaController extends Controller
 
         $consultas = Consulta::with(['paciente.pessoa', 'medico.pessoa', 'tipoConsulta'])
             ->where('data', $data)
+            ->when($request->filled('status'),    fn($q) => $q->where('status', $request->status))
+            ->when($request->filled('id_medico'), fn($q) => $q->where('id_medico', $request->id_medico))
             ->orderByRaw("TIME(hora_inicio)")
             ->get()
             ->map(fn($c) => [
